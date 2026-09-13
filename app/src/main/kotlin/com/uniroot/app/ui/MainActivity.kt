@@ -298,9 +298,9 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
     private fun launchRun() {
         val profile = engine.profileByName(selectedProfileName) ?: return
 
-        // S26 Ultra : via Shizuku — mais TOUJOURS de façon visible : aucun retour
-        // silencieux, l'utilisateur voit exactement ce qui bloque.
-        if (profile.name.startsWith("S26")) {
+        // S26 Ultra / Z Fold 8 : via Shizuku — mais TOUJOURS de façon visible :
+        // aucun retour silencieux, l'utilisateur voit exactement ce qui bloque.
+        if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) {
             if (!engine.shizukuBinderActive()) {
                 engine.clearLogs()
                 sheetVisible = true
@@ -324,13 +324,13 @@ class MainActivity : ComponentActivity(), Shizuku.OnRequestPermissionResultListe
         sheetVisible = true
         sheetDismissible = false
         if (autoMatched) engine.appendLog("[Mode] Profile auto-detected for this device")
-        engine.appendLog("[Mode] " + (if (shizukuEnabled || profile.name.startsWith("S26")) "Shizuku (shell UID 2000)" else "Local (app context)"))
+        engine.appendLog("[Mode] " + (if (shizukuEnabled || profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) "Shizuku (shell UID 2000)" else "Local (app context)"))
 
         lifecycleScope.launch {
             engine.setRunning(true)
             var status = "Crash"
             try {
-                status = engine.runExecutionPipeline(profile, shizukuEnabled || profile.name.startsWith("S26"))
+                status = engine.runExecutionPipeline(profile, shizukuEnabled || profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8"))
                 engine.appendLog("[Pipeline] Finished: $status")
                 runLogs = engine.listRunLogs()
                 if (status == "Success") {

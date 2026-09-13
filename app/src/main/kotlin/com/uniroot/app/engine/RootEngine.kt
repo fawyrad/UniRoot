@@ -566,6 +566,7 @@ class RootEngine(private val context: Context) {
         val kernel = runCatching { File("/proc/version").readText() }.getOrDefault("")
             .substringAfter("Linux version ", "").substringBefore(" (").trim()
         val matched: String? = when {
+            (model.startsWith("SM-F971") || model.startsWith("SM-F976")) && kernel.contains("6.12.58") -> "Z Fold 8"
             model.startsWith("SM-S948") && kernel.contains("6.12.69") -> "S26 Ultra 6.12.69 ZZHK"
             model.startsWith("SM-S931") && kernel.contains("6.6.127") && incremental.contains("ZZI4") -> "S25 6.6.127 ZZI4"
             model.startsWith("SM-S931") && kernel.contains("6.6.127") && incremental.contains("ZZHL") -> "S25 6.6.127 ZZHL"
@@ -654,7 +655,7 @@ class RootEngine(private val context: Context) {
         // Profil Samsung sans fichiers avancés : SEUL le mode Local est validé
         // (helper --run-payload + oracle physique). On ignore le toggle Shizuku.
         var useShizuku = useShizukuParam
-        if (profile.name.startsWith("S26")) useShizuku = true
+        if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) useShizuku = true
         if (useShizuku && profile.deviceType == "samsung" && profile.pathCveNormal.isNullOrEmpty()) {
             appendLog("[Mode] Mode Local validé pour ce profil (Shizuku ignoré)")
             useShizuku = false
@@ -718,7 +719,9 @@ class RootEngine(private val context: Context) {
                 // (proven: Failed at 00:28 -> Success at 00:29 same boot), so the
                 // app chains full payload relaunches instead of asking the user
                 // to manually re-run — and stops if the pipe budget runs out.
-                val maxRelaunches = 2
+                // S26 / Z Fold 8 (same h8q 6.12 payload family): more retries —
+                // the pipe race is probabilistic and the app chains whole runs.
+                val maxRelaunches = if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) 4 else 2
                 var relaunches = 0
                 if (profile.deviceType == "samsung" && !profile.pathCveNormal.isNullOrEmpty() && !profile.pathCveRoot.isNullOrEmpty()) {
                     appendLog("[Shizuku] Copying advanced CVEs to /data/local/tmp/...")
@@ -767,7 +770,7 @@ class RootEngine(private val context: Context) {
                     // S26 (preload v10): the validated chain runs inside a live `sh`
                     // (LD_PRELOAD=... sh) — the payload re-execs ROOT_STAGE on sh and its
                     // pipe race needs a host that stays alive. Other profiles keep /system/bin/true.
-                    val isS26 = profile.name.startsWith("S26")
+                    val isS26 = profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")
                     val host = if (isS26) "sh -c 'sleep 300'" else "/system/bin/true"
                     val cmdString = listOf(envVars.trim(), kaslrEnv, "LD_PRELOAD=/data/local/tmp/cve.so", host, "> $logFilePath 2>&1 & echo \$! > /data/local/tmp/exploit.pid")
                         .filter { it.isNotBlank() }.joinToString(" ")
@@ -825,9 +828,9 @@ class RootEngine(private val context: Context) {
                     }
                     if (currentLog.contains("failed") || currentLog.contains("[-] exploit")) { finalStatus = "Failed" }
                     
-                    if (profile.name.startsWith("S26")) {
-                        // The v10 preload hijacks the host sh in its constructor: 'sleep'
-                        // NEVER runs, so pidof is useless. Track the real host pid instead.
+                    if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) {
+                        // The 6.12 preloads hijack the host process; track the real
+                        // host pid instead of guessing process names.
                         if (hostPid.isEmpty() && pidReadTries < 40) {
                             pidReadTries++
                             hostPid = executeCommandAndReturnOutput("cat /data/local/tmp/exploit.pid 2>/dev/null", true).trim()
