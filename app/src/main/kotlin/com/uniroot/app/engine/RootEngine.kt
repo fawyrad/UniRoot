@@ -132,6 +132,8 @@ class RootEngine(private val context: Context) {
             "s25-zzhl-next" to listOf("cve.so", "kernelsu.ko", "ksud"),
             "s25-zzi4-next" to listOf("cve.so", "kernelsu.ko", "ksud"),
             "s26u-zzhk-next" to listOf("cve.so", "kernelsu.ko", "ksud"),
+            "zfold8" to listOf("cve.so", "kernelsu.ko", "ksud"),
+            "zfold8-next" to listOf("cve.so", "kernelsu.ko", "ksud"),
         )
         for ((dir, files) in mapping) {
             for (name in files) {
@@ -252,6 +254,8 @@ class RootEngine(private val context: Context) {
         DefaultSpec("S25 6.6.127 ZZHL Next", "kernelsu_next", "s25-zzhl-next", "samsung", false),
         DefaultSpec("S25 6.6.127 ZZI4 Next", "kernelsu_next", "s25-zzi4-next", "samsung", true),
         DefaultSpec("S26 Ultra 6.12.69 ZZHK Next", "kernelsu_next", "s26u-zzhk-next", "oppo", false),
+        DefaultSpec("F976X 6.12.58", "kernelsu", "zfold8", "samsung", false),
+        DefaultSpec("F976X 6.12.58 Next", "kernelsu_next", "zfold8-next", "samsung", false),
     )
 
     private fun ensureDefaultProfiles() {
@@ -566,7 +570,7 @@ class RootEngine(private val context: Context) {
         val kernel = runCatching { File("/proc/version").readText() }.getOrDefault("")
             .substringAfter("Linux version ", "").substringBefore(" (").trim()
         val matched: String? = when {
-            (model.startsWith("SM-F971") || model.startsWith("SM-F976")) && kernel.contains("6.12.58") -> "Z Fold 8"
+            (model.startsWith("SM-F971") || model.startsWith("SM-F976")) && kernel.contains("6.12.58") -> "F976X 6.12.58"
             model.startsWith("SM-S948") && kernel.contains("6.12.69") -> "S26 Ultra 6.12.69 ZZHK"
             model.startsWith("SM-S931") && kernel.contains("6.6.127") && incremental.contains("ZZI4") -> "S25 6.6.127 ZZI4"
             model.startsWith("SM-S931") && kernel.contains("6.6.127") && incremental.contains("ZZHL") -> "S25 6.6.127 ZZHL"
