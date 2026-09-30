@@ -5,6 +5,8 @@ data class DeviceProfile(
     val deviceType: String, val pathCveNormal: String?, val pathCveRoot: String?,
     /** "kernelsu" (default) or "kernelsu_next" — drives the home-page switch + manager relaunch. */
     val flavor: String = "kernelsu",
+    /** Run this profile's payload through the Shizuku shell (UID 2000), like S26 Ultra / Z Fold 8. */
+    val useShizuku: Boolean = false,
 )
 
 data class DeviceInfo(

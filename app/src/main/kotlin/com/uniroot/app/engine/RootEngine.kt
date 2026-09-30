@@ -30,8 +30,23 @@ class RootEngine(private val context: Context) {
 
     private val gitHub = GitHubSupport(context)
 
-    private companion object {
+    companion object {
         @Volatile var crashHandlerInstalled = false
+
+        /** profiles_json marker: key injected, helper install pending after the soft reboot. */
+        const val INSTANT_STAGE_INJECTED = "injected"
+
+        /** Same, but the toast was already shown once — notification only from now on. */
+        const val INSTANT_STAGE_QUIET = "injected_quiet"
+
+        /**
+         * Profiles whose payload runs through the Shizuku shell (UID 2000):
+         * S26 Ultra (6.12.69) and Z Fold 8 / F976X (6.12.58). Their h8q-family
+         * preloads need a live shell host — the app-forced Local mode is for
+         * the S25 6.6 family only.
+         */
+        fun profileNeedsShizuku(name: String?): Boolean =
+            name != null && (name.startsWith("S26") || name.startsWith("Z Fold 8") || name.startsWith("F976"))
     }
 
     // ---------------------------------------------------------------------
@@ -65,29 +80,35 @@ class RootEngine(private val context: Context) {
         get() = prefs.getString("ksu_flavor", "kernelsu") ?: "kernelsu"
         set(value) = prefs.edit().putString("ksu_flavor", value).apply()
 
+    /**
+     * New method — profil ksud Next choisi sur l'accueil (id du fichier dans
+     * assets/df/ksud-next/). "" = défaut (profil le plus récent), cf.
+     * KsudNextProfiles.
+     */
+    var ksudNextProfile: String
+        get() = prefs.getString("ksud_next_profile", "") ?: ""
+        set(value) = prefs.edit().putString("ksud_next_profile", value).apply()
+
     fun latestKsuTag(): String = prefs.getString("latest_ksu_tag", "") ?: ""
 
     fun setLatestKsuTag(tag: String) = prefs.edit().putString("latest_ksu_tag", tag).apply()
 
-    /**
-     * Patched ksud for testing (e.g. the Samsung DEFEX/KDP build for the S26U):
-     * off by default — the pipeline then uses the profile's validated ksud.
-     */
-    var usePatchedKsud: Boolean
-        get() = prefs.getBoolean("use_patched_ksud", false)
-        set(value) = prefs.edit().putBoolean("use_patched_ksud", value).apply()
+    // ---- Instant root (DFReroot second stage) ----
 
-    // IMPORTANT: stored on the EXTERNAL app dir — the Shizuku staging `cp` runs as
-    // shell (uid 2000), which cannot read the app's private internal storage.
-    fun patchedKsudFile(): File? =
-        File(context.getExternalFilesDir(null), "ksud-test").takeIf { it.exists() }
+    /** When on, DFReroot re-roots the phone at every boot (no exploit run). */
+    var instantRootEnabled: Boolean
+        get() = prefs.getBoolean("instant_root_enabled", false)
+        set(value) = prefs.edit().putBoolean("instant_root_enabled", value).apply()
 
-    fun installPatchedKsud(src: File): File? = runCatching {
-        val dest = File(context.getExternalFilesDir(null), "ksud-test")
-        src.inputStream().use { i -> FileOutputStream(dest).use { o -> i.copyTo(o) } }
-        dest.setReadable(true, false); dest.setExecutable(true, false)
-        dest
-    }.getOrNull()
+    /** The one-time "enable instant root?" offer after the first success. */
+    var instantRootPrompted: Boolean
+        get() = prefs.getBoolean("instant_root_prompted", false)
+        set(value) = prefs.edit().putBoolean("instant_root_prompted", value).apply()
+
+    /** "" = not running; "injected" = key in packages.xml, helper install pending after the soft reboot. */
+    var instantRootSetupStage: String
+        get() = prefs.getString("instant_root_setup_stage", "") ?: ""
+        set(value) = prefs.edit().putString("instant_root_setup_stage", value).apply()
 
     fun fileMd5(f: File): String = runCatching {
         val md = java.security.MessageDigest.getInstance("MD5")
@@ -97,18 +118,6 @@ class RootEngine(private val context: Context) {
         }
         md.digest().joinToString("") { "%02x".format(it) }
     }.getOrDefault("?")
-
-    /** ksud actually staged for this run (patched test build when enabled). */
-    fun ksudPathForRun(profile: DeviceProfile, quiet: Boolean = false): String {
-        if (!usePatchedKsud) return profile.pathKsud
-        val patched = patchedKsudFile()
-        if (patched == null) {
-            if (!quiet) appendLog("[!] Patched ksud enabled but no file installed — using the profile ksud.")
-            return profile.pathKsud
-        }
-        if (!quiet) appendLog("[KernelSU] Using PATCHED ksud (test): ${patched.name} md5=${fileMd5(patched)}")
-        return patched.absolutePath
-    }
 
     // ---------------------------------------------------------------------
     // Profiles
@@ -219,7 +228,7 @@ class RootEngine(private val context: Context) {
                     o.getString("pathSo"), o.getString("pathKo"), o.getString("pathKsud"),
                     o.optString("deviceType", "samsung"),
                     o.optString("pathCveNormal", null), o.optString("pathCveRoot", null),
-                    o.optString("flavor", "kernelsu")))
+                    o.optString("flavor", "kernelsu"), o.optBoolean("useShizuku", false)))
             }
         }
     }
@@ -229,7 +238,7 @@ class RootEngine(private val context: Context) {
             put("name", p.name); put("kaslrOffset", p.kaslrOffset); put("pathSo", p.pathSo)
             put("pathKo", p.pathKo); put("pathKsud", p.pathKsud); put("deviceType", p.deviceType)
             put("pathCveNormal", p.pathCveNormal); put("pathCveRoot", p.pathCveRoot)
-            put("flavor", p.flavor)
+            put("flavor", p.flavor); put("useShizuku", p.useShizuku)
         })
         prefs.edit().putString("profiles_json", arr.toString()).apply()
     }
@@ -297,12 +306,25 @@ class RootEngine(private val context: Context) {
     // ---------------------------------------------------------------------
 
     private fun restoreRootedState() {
-        _rooted.value = ksuModuleLoaded()
+        _rooted.value = rootAlive()
     }
 
     fun refreshRootedLive() {
-        _rooted.value = ksuModuleLoaded()
+        _rooted.value = rootAlive()
     }
+
+    /**
+     * The ONLY state that counts as rooted for the UI: a WORKING su (uid=0).
+     * The kernel module alone can be a half-dead boot leftover (module loaded,
+     * ksud dead) — trusting it flipped the main button to "Disable root" and
+     * blocked re-rooting until the app was reinstalled.
+     */
+    fun rootAlive(): Boolean = runCatching {
+        val p = ProcessBuilder("su", "-c", "id").start()
+        val done = p.waitFor(4, java.util.concurrent.TimeUnit.SECONDS)
+        if (!done) { runCatching { p.destroy() }; return false }
+        p.inputStream.bufferedReader().use { it.readText() }.contains("uid=0")
+    }.getOrDefault(false)
 
     fun markRooted(profileName: String) {
         val set = prefs.getStringSet("rooted_profiles", emptySet()).orEmpty().toMutableSet()
@@ -325,9 +347,28 @@ class RootEngine(private val context: Context) {
         _rooted.value = false
     }
 
-    fun ksuModuleLoaded(): Boolean = runCatching {
-        File("/proc/modules").readText().lineSequence().any { it.startsWith("kernelsu ") }
-    }.getOrDefault(false)
+    /**
+     * Live KernelSU module check (classic AND Next). Two lookup paths because
+     * the app SELinux domain can be denied /proc/modules on some devices:
+     * direct read first, then a shell read. Matches "kernelsu*"/"ksunext*"
+     * module names so both flavors are detected.
+     */
+    fun ksuModuleLoaded(): Boolean {
+        runCatching { File("/proc/modules").readText() }.getOrNull()?.let { text ->
+            if (moduleLinePresent(text)) return true
+        }
+        val viaShell = runCatching {
+            val p = ProcessBuilder("sh", "-c", "cat /proc/modules").redirectErrorStream(true).start()
+            val done = p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            val text = if (done) p.inputStream.bufferedReader().use { it.readText() } else ""
+            runCatching { p.destroy() }
+            text
+        }.getOrDefault("")
+        return moduleLinePresent(viaShell)
+    }
+
+    private fun moduleLinePresent(procModules: String): Boolean =
+        procModules.contains("kernelsu") || procModules.contains("ksunext")
 
     // ---------------------------------------------------------------------
     // Run logs (Root My Galaxy style boxes, shareable .txt)
@@ -352,7 +393,7 @@ class RootEngine(private val context: Context) {
 
     private fun runLogHeader(stamp: String, status: String, profileName: String, durationMs: Long): String = buildString {
         val info = detectDevice()
-        appendLine("Uni-Root run log")
+        appendLine("UniRoot run log")
         appendLine("Date:     ${stamp.replace('_', ' ')}")
         appendLine("Result:   $status")
         appendLine("Duration: ${durationMs / 1000}s")
@@ -656,11 +697,14 @@ class RootEngine(private val context: Context) {
             appendLog("[!] Pour tester proprement ce profil : REBOOTE d'abord, puis relance.")
         }
 
-        // Profil Samsung sans fichiers avancés : SEUL le mode Local est validé
-        // (helper --run-payload + oracle physique). On ignore le toggle Shizuku.
-        var useShizuku = useShizukuParam
-        if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) useShizuku = true
-        if (useShizuku && profile.deviceType == "samsung" && profile.pathCveNormal.isNullOrEmpty()) {
+        // Shizuku famille S26/Z Fold 8 (ou toggle par profil) : le payload
+        // tourne via le shell UID 2000. Les profils Samsung S25 sans fichiers
+        // avancés restent en mode Local VALIDÉ (helper --run-payload + oracle
+        // physique) : le toggle Shizuku est ignoré pour eux.
+        val shizukuProfile = profileNeedsShizuku(profile.name)
+        var useShizuku = useShizukuParam || profile.useShizuku
+        if (shizukuProfile) useShizuku = true
+        if (useShizuku && !shizukuProfile && profile.deviceType == "samsung" && profile.pathCveNormal.isNullOrEmpty()) {
             appendLog("[Mode] Mode Local validé pour ce profil (Shizuku ignoré)")
             useShizuku = false
         }
@@ -725,7 +769,7 @@ class RootEngine(private val context: Context) {
                 // to manually re-run — and stops if the pipe budget runs out.
                 // S26 / Z Fold 8 (same h8q 6.12 payload family): more retries —
                 // the pipe race is probabilistic and the app chains whole runs.
-                val maxRelaunches = if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) 4 else 2
+                val maxRelaunches = if (shizukuProfile) 4 else 2
                 var relaunches = 0
                 if (profile.deviceType == "samsung" && !profile.pathCveNormal.isNullOrEmpty() && !profile.pathCveRoot.isNullOrEmpty()) {
                     appendLog("[Shizuku] Copying advanced CVEs to /data/local/tmp/...")
@@ -733,13 +777,13 @@ class RootEngine(private val context: Context) {
                     val cveRootPath = "/data/local/tmp/cve-2026-43499-root"
                     
                     runDiagnosticCommand("cp ${profile.pathCveNormal} $cveNormalPath && cp ${profile.pathCveRoot} $cveRootPath && chmod 755 $cveNormalPath $cveRootPath", true)
-                    runDiagnosticCommand("cp ${ksudPathForRun(profile)} /data/local/tmp/ksud && cp ${profile.pathKo} /data/local/tmp/kernelsu.ko && chmod 755 /data/local/tmp/ksud", true)
+                    runDiagnosticCommand("cp ${profile.pathKsud} /data/local/tmp/ksud && cp ${profile.pathKo} /data/local/tmp/kernelsu.ko && chmod 755 /data/local/tmp/ksud", true)
                     
                     appendLog("[Exploit] Launching via LD_PRELOAD (Shell UID 2000)...")
                     launchCmd = "LD_PRELOAD=$cveNormalPath /system/bin/true > $logFilePath 2>&1 &"
                 } else {
                     appendLog("[Shizuku] Copying to /data/local/tmp/...")
-                    val ksudForRun = ksudPathForRun(profile)
+                    val ksudForRun = profile.pathKsud
                     val isNext = profile.flavor == "kernelsu_next"
                     if (isNext) {
                         appendLog("[KernelSU] Next ksud is all-in-one (embedded module) — no external .ko staged.")
@@ -774,7 +818,7 @@ class RootEngine(private val context: Context) {
                     // S26 (preload v10): the validated chain runs inside a live `sh`
                     // (LD_PRELOAD=... sh) — the payload re-execs ROOT_STAGE on sh and its
                     // pipe race needs a host that stays alive. Other profiles keep /system/bin/true.
-                    val isS26 = profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")
+                    val isS26 = shizukuProfile
                     val host = if (isS26) "sh -c 'sleep 300'" else "/system/bin/true"
                     val cmdString = listOf(envVars.trim(), kaslrEnv, "LD_PRELOAD=/data/local/tmp/cve.so", host, "> $logFilePath 2>&1 & echo \$! > /data/local/tmp/exploit.pid")
                         .filter { it.isNotBlank() }.joinToString(" ")
@@ -832,7 +876,7 @@ class RootEngine(private val context: Context) {
                     }
                     if (currentLog.contains("failed") || currentLog.contains("[-] exploit")) { finalStatus = "Failed" }
                     
-                    if (profile.name.startsWith("S26") || profile.name.startsWith("Z Fold 8")) {
+                    if (shizukuProfile) {
                         // The 6.12 preloads hijack the host process; track the real
                         // host pid instead of guessing process names.
                         if (hostPid.isEmpty() && pidReadTries < 40) {
@@ -866,8 +910,9 @@ class RootEngine(private val context: Context) {
                 attempts = 0
                 hostPid = ""
                 pidReadTries = 0
-                // The dirty-oracle state clears itself in about a minute (measured).
-                delay(60_000L)
+                // Short gap only: a fresh relaunch right after a failure finds a
+                // clean pipe/slab state just as well (user-validated timing).
+                delay(10_000L)
                 }
 
                 if (!success && epermSeen && relaunches >= maxRelaunches) {
@@ -891,7 +936,7 @@ class RootEngine(private val context: Context) {
                         appendLog("[Inject CMD] $injectCmd")
                         val injectOutput = executeCommandAndReturnOutput(injectCmd, true)
                         if (injectOutput.isNotBlank()) appendLog("[INJECT] $injectOutput")
-                    } else if (profile.name.startsWith("S26")) {
+                    } else if (shizukuProfile) {
                         appendLog("[Daemon] Injection already done by the preload ROOT_STAGE (cp ksud + late-load).")
                         appendLog("[Pipeline] KernelSU active (check the manager app).")
                     } else {
@@ -963,12 +1008,12 @@ class RootEngine(private val context: Context) {
                 runCatching { process.destroyForcibly() }
                 attempts = 0
                 lastLog = ""
-                delay(60_000L)
+                delay(10_000L)
                 }
 
                 if (success) {
                     appendLog("[Success] Root acquired!")
-                    val ksudPath = ksudPathForRun(profile)
+                    val ksudPath = profile.pathKsud
                     val koPath = File(profile.pathKo).absolutePath
                     appendLog("[Daemon] Preparing ksud...")
                     val stageCmd = "/system/bin/mkdir -p /data/adb && /system/bin/cp $ksudPath /data/local/tmp/ksud-s25u-kdp && /system/bin/cp $ksudPath /data/local/tmp/.ksud-stage && /system/bin/cp $koPath /data/local/tmp/kernelsu.ko && /system/bin/chmod 755 /data/local/tmp/ksud-s25u-kdp /data/local/tmp/.ksud-stage"

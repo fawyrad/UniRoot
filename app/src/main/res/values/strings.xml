@@ -1,18 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Uni-Root</string>
+    <string name="app_name">UniRoot</string>
     <string name="advanced_settings">Advanced settings</string>
     <string name="about">About</string>
     <string name="action_advanced">Advanced</string>
     <string name="action_run">Root now</string>
     <string name="action_running">Running…</string>
+    <string name="action_disable_root">Disable root</string>
+    <string name="action_already_root">Already root</string>
+    <string name="action_add_profile">Add profile</string>
+    <string name="profile_use_shizuku">Use Shizuku</string>
+    <string name="profile_use_shizuku_summary">Run this profile through the Shizuku shell (UID 2000). Needed by S26 Ultra / Z Fold 8; leave off for S25 (Local mode).</string>
     <string name="kernel_supported">Device supported</string>
     <string name="kernel_unsupported">Device not auto-detected</string>
+    <string name="root_chain_failed">Chain failed</string>
     <string name="status_rooted">Device rooted</string>
     <string name="device_label">Device</string>
     <string name="soc_label">SoC</string>
     <string name="kernel_label">Kernel</string>
     <string name="profile_label">Profile</string>
+    <string name="new_method_already_rooted">Already rooted this boot — reboot the phone to run again</string>
+    <string name="new_method_armed_failed">Hooks armed but root is not up — reboot the phone, then run again</string>
+    <string name="custom_ksud_title">Custom ksud</string>
+    <string name="custom_ksud_active">Custom ksud active — it is used for the new method runs</string>
+    <string name="custom_ksud_none">No custom ksud — the bundled universal one is used</string>
+    <string name="custom_ksud_patch">Patch a custom .ko (creates your ksud)</string>
+    <string name="custom_ksud_reset">Reset to bundled ksud</string>
+    <string name="custom_ksud_done">Custom ksud created for %1$s — it will be used by the new method</string>
+    <string name="see_last_log">See log</string>
+    <string name="method_old">Old exploit (slow)</string>
+    <string name="method_new">New exploit (fast)</string>
+    <string name="new_method_no_profile">No profile needed — the new method roots directly via DirtyFrag (CVE-2026-43284). No root, no Shizuku, no setup: press Root now.</string>
+    <string name="new_method_settings_title">New method settings</string>
+    <string name="new_method_boot_title">Start on boot</string>
+    <string name="new_method_boot_summary">Re-roots the phone automatically at every boot (before first unlock)</string>
+    <string name="new_method_soft_reboot_title">Auto soft reboot</string>
+    <string name="new_method_soft_reboot_summary">Soft reboots after boot re-rooting so the manager refreshes (KernelSU classic only)</string>
+    <string name="new_method_advanced_info">New method settings (Start on boot, Auto soft reboot) are on the home screen — right under the method switch. Nothing else to configure: no profile, no setup.</string>
+    <string name="new_method_about">New method = DirtyFrag engine (dfroot): root from the app alone, at every boot when enabled. Completely independent from the old method, profiles and instant root.</string>
+    <string name="new_method_rooted_no_grant">Phone is rooted — allow UniRoot in KernelSU (Next) to confirm it in-app</string>
+    <string name="new_method_failed">New method failed — see the log (a retry or a reboot helps)</string>
     <string name="flavor_kernelsu">KernelSU</string>
     <string name="flavor_ksunext">KernelSU Next</string>
     <string name="shizuku_label">Shizuku mode (UID 2000)</string>
@@ -25,7 +52,7 @@
     <string name="reset_profiles">Reset profiles to defaults</string>
     <string name="reset_done">Profiles reset</string>
     <string name="view_source">Source:</string>
-    <string name="opensource_info">UI based on GhostLock (YuKongA). Engine: Uni-Root profiles (S25 ZZI4/ZZHL, S26U ZZHK, S93XX, Oppo) + Root My Galaxy GitHub feed. KernelSU manager by tiann/kernelSU.</string>
+    <string name="opensource_info">UI based on GhostLock (YuKongA). Engine: UniRoot profiles (S25 ZZI4/ZZHL, S26U ZZHK, S93XX, Oppo) + Root My Galaxy GitHub feed. KernelSU manager by tiann/kernelSU.</string>
     <string name="no_profile_selected">No profile selected</string>
     <string name="view_logs">View logs</string>
     <string name="made_by">Made by kuuky</string>
@@ -62,19 +89,12 @@
     <string name="choose_file">Choose…</string>
     <string name="no_file">Bundled default</string>
     <string name="pick_failed">Could not import the selected file</string>
-
     <!-- Advanced settings: latest KernelSU builds -->
     <string name="use_latest_ksu">Latest KernelSU builds from GitHub</string>
     <string name="use_latest_ksu_warning">Not recommended — replaces the tested bundled ksud and kernel module with the newest official KernelSU release for your kernel. Newer builds may be unstable and can kernel panic your device. Experienced users only; activating this is discouraged.</string>
     <string name="use_latest_not_downloaded">No binaries downloaded yet.</string>
     <string name="use_latest_downloaded">Downloaded: %1$s (used by Root now while this option is on)</string>
     <string name="download_latest_ksu">Download latest binaries now</string>
-    <string name="use_patched_ksud">Use patched ksud (test)</string>
-    <string name="use_patched_ksud_summary">Off by default. When on, the pipeline stages the patched test ksud (e.g. the Samsung DEFEX/KDP build for the S26 Ultra) instead of the profile one.</string>
-    <string name="patched_ksud_none">No patched ksud installed yet.</string>
-    <string name="patched_ksud_set">Patched ksud: %1$s</string>
-    <string name="patched_ksud_choose">Choose patched ksud file…</string>
-    <string name="patched_ksud_installed">Patched ksud installed</string>
     <string name="auto_root_on_boot">Auto-root on boot</string>
     <string name="autoroot_stop">Stop</string>
     <string name="autoroot_start_toast">Root starts in 1 minute — check notification</string>
@@ -96,7 +116,7 @@
     <string name="autoroot_running">Auto-root: running %1$s…</string>
     <string name="autoroot_retrying">Auto-root: retry %1$d — don\'t touch the phone</string>
     <string name="autoroot_success">Auto-root SUCCESS — root is active</string>
-    <string name="autoroot_result">Auto-root %1$s — check the Uni-Root Logs page</string>
+    <string name="autoroot_result">Auto-root %1$s — check the UniRoot Logs page</string>
     <string name="auto_root_on_boot_summary">Automatically re-runs the last used profile after a reboot (one run per boot). S26 Ultra requires Shizuku "Start on boot" (wireless debugging). Off by default.</string>
     <string name="use_latest_enabled_toast">The next run will use the downloaded binaries if available. Use the download button to fetch them.</string>
 
@@ -104,4 +124,72 @@
     <string name="run_history">Run history</string>
     <string name="log_share">Share .txt</string>
     <string name="log_view">View log</string>
+
+    <!-- Instant root (DFReroot second stage) -->
+    <string name="instant_root_title">Instant root</string>
+    <string name="instant_root_offer_title">Instant root available</string>
+    <string name="instant_root_offer_body">Root is lost at every reboot. Instant root sets up a small helper now (one tiny app + one soft reboot). After that the phone roots itself at every boot — no exploit, no waiting, much safer. Enable it?\n\nYou will need to allow superuser for UniRoot when the popup appears.</string>
+    <string name="instant_root_enable">Enable</string>
+    <string name="instant_root_not_now">Not now</string>
+    <string name="instant_root_keep_title">Keep instant root?</string>
+    <string name="instant_root_keep_body">Instant root re-roots this phone by itself at every boot. Keep it after switching profile?\n\nNo = clean boot (no root). Root the new profile, then turn instant root back on in Advanced settings.</string>
+    <string name="instant_root_keep_yes">Yes</string>
+    <string name="instant_root_keep_no">No</string>
+    <string name="instant_root_enabled_summary">Instant root is ON — the phone roots itself at every boot.</string>
+    <string name="instant_root_off_summary">Off. After a reboot the phone stays unrooted until you run Root now.</string>
+    <string name="instant_root_not_installed">Not installed. Root once, then enable it from the popup after a successful run.</string>
+    <string name="instant_root_disabled_toast">Instant root off — after a reboot the phone stays unrooted (you can change profile)</string>
+    <string name="instant_root_switch_on_toast">Instant root on — it will root the phone by itself at the next boot</string>
+    <string name="instant_root_boot_starting">Instant root will start</string>
+    <string name="instant_root_will_start">Instant root will start</string>
+    <string name="instant_root_setup_start">[InstantRoot] Setting up…</string>
+    <string name="instant_root_setup_su_wait">[InstantRoot] Waiting for superuser grant (popup from the KernelSU manager)…</string>
+    <string name="instant_root_setup_reboot">[InstantRoot] Key injected — restarting the framework now. When it comes back, UniRoot will ask you to install the helper.</string>
+    <string name="instant_root_setup_failed">[InstantRoot] Setup failed — see the log. You can try again after the next successful root.</string>
+    <string name="instant_root_finish_title">UniRoot — instant root</string>
+    <string name="instant_root_finish_ok">Instant root is ready — the phone will root itself at every boot</string>
+    <string name="instant_root_finish_failed">Instant root setup did not finish (%1$s). It will retry at the next boot.</string>
+    <string name="instant_root_need_root">Root is not active right now. Run Root first (or wait for instant root), then enable it.</string>
+    <string name="auto_root_exclusive">Auto-root and instant root can\'t be on together — turn off instant root first.</string>
+    <string name="autoroot_disabled_for_instant">Auto-root turned off — it can\'t run together with instant root.</string>
+    <string name="instant_root_fallback">Instant root: tap the notification to finish the setup.</string>
+    <string name="open_manager">Open %1$s</string>
+    <string name="instant_root_log">Instant Root log</string>
+    <string name="instant_root_update_helper">Update helper</string>
+    <string name="instant_root_open_helper">Open helper</string>
+    <string name="instant_root_uninstall_helper">Uninstall helper</string>
+    <string name="instant_root_uninstall_noroot">Uninstall helper (no root)</string>
+    <string name="instant_root_uninstall_confirm">Remove the instant root helper? The phone will stay unrooted after the next reboot (the packages.xml key is also removed if root is still active).</string>
+    <string name="instant_root_uninstall">Uninstall</string>
+    <string name="instant_root_uninstalled">Helper uninstalled — instant root is fully removed.</string>
+    <string name="phone_rooted_toast">Phone is rooted</string>
+    <string name="instant_root_open_to_finish">Instant root setup — opening UniRoot to finish…</string>
+    <string name="instant_root_su_ok">Superuser granted ✓</string>
+    <string name="instant_root_next_step">Next: the signing key will be injected, then the phone will soft reboot (do not reboot)</string>
+    <string name="instant_root_injecting">Injecting the signing key…</string>
+    <string name="instant_root_restarting">The phone will soft reboot…</string>
+    <string name="instant_root_launch_after">Launch UniRoot after the soft reboot</string>
+    <string name="instant_root_preparing">Instant root: preparing…</string>
+    <string name="instant_root_rooted_notif">Instant root — phone rooted</string>
+    <string name="instant_root_scanning">Instant root: waiting for root… %1$ds</string>
+    <string name="instant_root_watch_failed">Instant root did not restore root this boot — the helper will retry at the next one.</string>
+    <string name="instant_root_soft_reboot_notif">Key injected — the phone will soft reboot. When it comes back, install Instant Root (the popup opens by itself).</string>
+    <string name="instant_root_inject_title">Ready to prepare instant root</string>
+    <string name="instant_root_inject_body">Superuser granted. Next: the signing key will be injected, then the phone will soft reboot (do not reboot). After the reboot the install popup for the helper opens by itself. Continue?</string>
+    <string name="instant_root_inject_continue">Continue</string>
+    <string name="instant_root_root_current_boot">Tip: the helper roots from the NEXT boot. To also root this boot, press Root now.</string>
+    <string name="superuser_needed_title">Superuser required</string>
+    <string name="superuser_needed_body">UniRoot needs superuser to prepare instant root (one time). Open KernelSU (Next) → Superuser → allow UniRoot, then press Enable again.</string>
+    <string name="superuser_needed_open">Open manager</string>
+    <string name="instant_root_install_title">Install the instant root helper</string>
+    <string name="instant_root_install_body">The key is injected and the framework restarted. Install the helper now? It runs in the background only — UniRoot controls it. Android will ask you to confirm the install.</string>
+    <string name="instant_root_install_now">Install</string>
+    <string name="instant_root_install_later">Later</string>
+    <string name="instant_root_install_ready">Instant Root is ready — the phone will root itself at every boot.</string>
+    <string name="instant_root_install_pending">Helper not installed yet — tap Install and confirm Android\'s install dialog.</string>
+    <string name="instant_root_install_failed">Install did not complete — open UniRoot and try again, or check the Instant Root log.</string>
+    <string name="instant_root_status_installed">Helper installed</string>
+    <string name="instant_root_status_missing">Helper not installed</string>
+
+    <string name="ksud_next_profile_label">Profil ksud Next</string>
 </resources>

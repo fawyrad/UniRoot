@@ -74,6 +74,8 @@ import com.uniroot.app.BuildConfig
 import com.uniroot.app.R
 import com.uniroot.app.engine.DeviceProfile
 import com.uniroot.app.engine.RunLogFile
+import com.uniroot.app.newmethod.KsudClassicProfiles
+import com.uniroot.app.newmethod.KsudNextProfile
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -126,18 +128,63 @@ data class UniUiState(
     val tab: UniTab = UniTab.UNIROOT,
     val useLatestKsu: Boolean = false,
     val latestKsuTag: String = "",
-    val usePatchedKsud: Boolean = false,
-    val patchedKsudName: String = "",
     val autoRootOnBoot: Boolean = false,
     val rmgStatus: String = "",
     val ksuNextMode: Boolean = false,
     val runLogs: List<RunLogFile> = emptyList(),
     val logViewerFile: RunLogFile? = null,
     val logViewerContent: String = "",
+    val instantRootEnabled: Boolean = false,
+    val instantRootInstalled: Boolean = false,
+    val instantRootOfferVisible: Boolean = false,
+    val keepInstantRootVisible: Boolean = false,
+    val instantRootInstallVisible: Boolean = false,
+    val instantRootLogVisible: Boolean = false,
+    val instantRootLogContent: String = "",
+    val superuserNeededVisible: Boolean = false,
+    val injectConfirmVisible: Boolean = false,
+    // NEW METHOD (fast, DFRoot engine): fully separated from the old flow.
+    val newMethod: Boolean = false,
+    val newMethodBootEnabled: Boolean = false,
+    val newMethodAutoSoftReboot: Boolean = true,
+    val newMethodProgress: Int = 0,
+    val newMethodStage: String = "",
+    // New méthode + KernelSU Next : profil ksud embarqué choisi (3.3.0, 3.4.0…).
+    val ksudNextProfiles: List<KsudNextProfile> = emptyList(),
+    val ksudNextProfileId: String = "",
+    // New méthode + KernelSU classic : profil classic (bundled / téléchargé).
+    val ksudClassicProfiles: List<KsudClassicProfiles.ClassicProfile> = emptyList(),
+    val ksudClassicProfileId: String = "",
+    // DEV — updater ksud Next (télécharge + patche + crée un profil).
+    val ksudUpdateRunning: Boolean = false,
+    val ksudUpdateLog: String = "",
+    val ksudUpdateSheetVisible: Boolean = false,
+    val ksudUpdateProgress: Int = 0,
+    val ksudUpdateStage: String = "",
+
+    val deviceInfoRows: List<Pair<String, String>> = emptyList(),
+    val rootStateRow: String = "",
+    val rootDetailRow: String = "",
+    val selinuxRow: String = "",
 )
 
 interface UniActions {
     fun onRun()
+    fun onDisableRoot()
+    fun onInstantRootEnable()
+    fun onInstantRootNotNow()
+    fun onKeepInstantRoot(keep: Boolean)
+    fun onInstantRootEnabledChanged(enabled: Boolean)
+    fun onUninstallHelper()
+    fun onInstantRootInstallNow()
+    fun onInstantRootInstallLater()
+    fun onOpenInstantRootLog()
+    fun onCloseInstantRootLog()
+    fun onOpenKsuManager()
+    fun onDismissSuperuserNeeded()
+    fun onInjectContinue()
+    fun onInjectCancel()
+    fun onOpenHelper()
     fun onCloseExecutionSheet()
     fun onTabSelected(tab: UniTab)
     fun onToggleAdvanced()
@@ -150,14 +197,20 @@ interface UniActions {
     fun onProfileDelete(name: String)
     fun onUseLatestKsuChanged(enabled: Boolean)
     fun onDownloadLatestKsu()
-    fun onUsePatchedKsudChanged(enabled: Boolean)
-    fun onInstallPatchedKsud(file: File)
     fun onAutoRootChanged(enabled: Boolean)
     fun onCheckRmg()
     fun onRunLogOpen(file: RunLogFile)
     fun onRunLogShare(file: RunLogFile)
     fun onRunLogDelete(file: RunLogFile)
     fun onRunLogViewerClose()
+    fun onRootMethodChanged(newMethod: Boolean)
+    fun onNewMethodBootChanged(enabled: Boolean)
+    fun onNewMethodSoftRebootChanged(enabled: Boolean)
+    fun onKsudNextProfileChanged(id: String)
+    fun onUpdateKsud()
+    fun onCloseKsudUpdateSheet()
+    fun onDeleteKsudProfile(id: String, classic: Boolean)
+    fun onKsudClassicProfileChanged(id: String)
 }
 
 @Composable
@@ -177,7 +230,7 @@ internal fun UniApp(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 TopAppBar(
-                    title = "Uni-Root",
+                    title = "UniRoot",
                     scrollBehavior = scrollBehavior,
                     actions = {
                         SettingsMenu(
@@ -199,6 +252,7 @@ internal fun UniApp(
                                     actions = actions,
                                     scrollBehavior = scrollBehavior,
                                     onOpenProfileSheet = { profileSheetOpen = true },
+                                    onAddProfile = { editingKey = "" },
                                     modifier = modifier,
                                 )
                             }
@@ -224,6 +278,7 @@ internal fun UniApp(
                 )
             }
             UniExecutionSheet(state = state, actions = actions)
+            UniKsudUpdateSheet(state = state, actions = actions)
             UniAboutDialog(show = aboutVisible, onDismissRequest = { aboutVisible = false })
             ProfileManagerSheet(
                 show = profileSheetOpen,
@@ -241,6 +296,181 @@ internal fun UniApp(
                     onSave = { profile, originalName ->
                         actions.onProfileSave(profile, originalName)
                         editingKey = null
+                    },
+                )
+            }
+            if (state.instantRootOfferVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.instant_root_offer_title),
+                    onDismissRequest = actions::onInstantRootNotNow,
+                    content = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(R.string.instant_root_offer_body))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_not_now),
+                                    onClick = actions::onInstantRootNotNow,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_enable),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    onClick = actions::onInstantRootEnable,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+            if (state.keepInstantRootVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.instant_root_keep_title),
+                    onDismissRequest = { actions.onKeepInstantRoot(true) },
+                    content = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(R.string.instant_root_keep_body))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_keep_no),
+                                    onClick = { actions.onKeepInstantRoot(false) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_keep_yes),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    onClick = { actions.onKeepInstantRoot(true) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+            if (state.instantRootInstallVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.instant_root_install_title),
+                    onDismissRequest = actions::onInstantRootInstallLater,
+                    content = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(R.string.instant_root_install_body))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_install_later),
+                                    onClick = actions::onInstantRootInstallLater,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_install_now),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    onClick = actions::onInstantRootInstallNow,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+            if (state.instantRootLogVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.instant_root_log),
+                    onDismissRequest = actions::onCloseInstantRootLog,
+                    content = {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 400.dp)
+                                .verticalScroll(rememberScrollState())
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF0B1220))
+                                .padding(12.dp),
+                        ) {
+                            SelectionContainer {
+                                Text(
+                                    text = state.instantRootLogContent,
+                                    color = Color(0xFFD1D5DB),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                )
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                            TextButton(
+                                text = stringResource(R.string.action_close),
+                                onClick = actions::onCloseInstantRootLog,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    },
+                )
+            }
+            if (state.superuserNeededVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.superuser_needed_title),
+                    onDismissRequest = actions::onDismissSuperuserNeeded,
+                    content = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(R.string.superuser_needed_body))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                TextButton(
+                                    text = stringResource(R.string.cancel),
+                                    onClick = actions::onDismissSuperuserNeeded,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.superuser_needed_open),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    onClick = actions::onOpenKsuManager,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+            if (state.injectConfirmVisible) {
+                OverlayDialog(
+                    show = true,
+                    title = stringResource(R.string.instant_root_inject_title),
+                    onDismissRequest = actions::onInjectCancel,
+                    content = {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(text = stringResource(R.string.instant_root_inject_body))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                TextButton(
+                                    text = stringResource(R.string.cancel),
+                                    onClick = actions::onInjectCancel,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.instant_root_inject_continue),
+                                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    onClick = actions::onInjectContinue,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
                     },
                 )
             }
@@ -393,6 +623,88 @@ private fun UniAboutDialog(
     )
 }
 
+/** Bottom progress popup for the ksud Next updater (same style as the run sheet). */
+@Composable
+private fun UniKsudUpdateSheet(
+    state: UniUiState,
+    actions: UniActions,
+) {
+    OverlayBottomSheet(
+        show = state.ksudUpdateSheetVisible,
+        title = if (state.ksuNextMode) "Update ksud Next" else "Update ksud classic",
+        allowDismiss = !state.ksudUpdateRunning,
+        onDismissRequest = actions::onCloseKsudUpdateSheet,
+        endAction = {
+            IconButton(
+                enabled = !state.ksudUpdateRunning,
+                onClick = actions::onCloseKsudUpdateSheet,
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Close,
+                    contentDescription = stringResource(R.string.action_close),
+                )
+            }
+        },
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 220.dp)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 24.dp),
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = state.ksudUpdateStage.ifBlank { "Preparing…" },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                val barAnim by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = state.ksudUpdateProgress.coerceIn(0, 100) / 100f,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 350),
+                    label = "ksudUpdateBar",
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(barAnim)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MiuixTheme.colorScheme.primary),
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "${state.ksudUpdateProgress}%",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+                if (state.ksudUpdateLog.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = state.ksudUpdateLog,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 220.dp),
+                    )
+                }
+            }
+        },
+    )
+}
+
 @Composable
 private fun UniExecutionSheet(
     state: UniUiState,
@@ -424,13 +736,61 @@ private fun UniExecutionSheet(
             }
         },
         content = {
-            LogPanel(
-                lines = state.logLines,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 240.dp, max = 520.dp)
-                    .navigationBarsPadding(),
-            )
+            if (state.newMethod) {
+                // New method: live PROGRESS view (the verbose log stays
+                // recorded and reachable from Advanced -> See log).
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 240.dp)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 24.dp),
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = state.newMethodStage.ifBlank { "Preparing…" },
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    // Animated so each step GLIDES to its value instead of jumping.
+                    val barAnim by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = state.newMethodProgress.coerceIn(0, 100) / 100f,
+                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 350),
+                        label = "newMethodBar",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(barAnim)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MiuixTheme.colorScheme.primary),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "${state.newMethodProgress}%",
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                }
+            } else {
+                LogPanel(
+                    lines = state.logLines,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 240.dp, max = 520.dp)
+                        .navigationBarsPadding(),
+                )
+            }
         },
     )
 }
@@ -441,6 +801,7 @@ private fun UniRootContent(
     actions: UniActions,
     scrollBehavior: ScrollBehavior,
     onOpenProfileSheet: () -> Unit,
+    onAddProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -457,16 +818,11 @@ private fun UniRootContent(
                 state = state,
                 actions = actions,
                 onOpenProfileSheet = onOpenProfileSheet,
+                onAddProfile = onAddProfile,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        item(key = "run") {
-            RunButton(
-                running = state.running,
-                supported = state.kernelSupported,
-                onClick = actions::onRun,
-                modifier = Modifier.fillMaxWidth(),
-            )
+        item(key = "made") {
             Text(
                 text = stringResource(R.string.made_by),
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -545,6 +901,7 @@ private fun ControlPanel(
     state: UniUiState,
     actions: UniActions,
     onOpenProfileSheet: () -> Unit,
+    onAddProfile: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -552,11 +909,22 @@ private fun ControlPanel(
             rooted = state.rooted,
             supported = state.kernelSupported,
             modifier = Modifier.fillMaxWidth(),
+            liveRootState = state.rootStateRow,
+            liveRootDetail = state.rootDetailRow,
+            selinux = state.selinuxRow,
         )
         DeviceInfoCard(
             deviceName = state.deviceName,
             socName = state.socName,
             kernelRelease = state.kernelRelease,
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            infoRows = state.deviceInfoRows,
+        )
+        // Method selector sits ABOVE the flavor switch: Old (profile +
+        // exploit race) vs New (DirtyFrag, no profile, no privilege).
+        MethodSwitch(
+            newMethod = state.newMethod,
+            onSelect = actions::onRootMethodChanged,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
         FlavorSwitch(
@@ -565,34 +933,282 @@ private fun ControlPanel(
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
 
-        if (state.profiles.isNotEmpty()) {
-            Card(modifier = modifier.padding(top = 12.dp)) {
-                OverlaySpinnerPreference(
-                    title = stringResource(R.string.profile_label),
-                    items = state.profiles.map { DropdownItem(icon = null, title = it.name) },
-                    selectedIndex = state.profiles.indexOfFirst { it.name == state.selectedProfileName },
-                    showValue = true,
-                    onSelectedIndexChange = actions::onProfileSelected,
+        if (!state.newMethod) {
+            if (state.profiles.isNotEmpty()) {
+                Card(modifier = modifier.padding(top = 12.dp)) {
+                    OverlaySpinnerPreference(
+                        title = stringResource(R.string.profile_label),
+                        items = state.profiles.map { DropdownItem(icon = null, title = it.name) },
+                        selectedIndex = state.profiles.indexOfFirst { it.name == state.selectedProfileName },
+                        showValue = true,
+                        onSelectedIndexChange = actions::onProfileSelected,
+                    )
+                }
+            }
+            // Always right under the profile list, in both KernelSU flavors.
+            TextButton(
+                text = stringResource(R.string.action_add_profile),
+                onClick = onAddProfile,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+            // Root action sits directly under the profiles: "Root now", or
+            // "Disable root" while the phone is rooted (cuts the boot re-root).
+            RunButton(
+                rooted = state.rooted,
+                running = state.running,
+                supported = state.kernelSupported,
+                onRun = actions::onRun,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+        } else {
+            // NEW METHOD — stacked layout: flavor switch, ksud updater right
+            // under it, Root button below, then the ksud Next profile band,
+            // then the boot switches.
+            // The SCRIPT in the app: downloads the latest ksud release
+            // (classic OR Next, per the flavor switch) and patches it with
+            // the bundled Samsung kos; the result is used by the engine
+            // directly (classic file / Next profile, auto-selected).
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF2563EB))
+                    .clickable(enabled = !state.ksudUpdateRunning) { actions.onUpdateKsud() }
+                    .padding(vertical = 14.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                Text(
+                    text = if (state.ksudUpdateRunning)
+                               "Updating ksud…"
+                           else if (state.ksuNextMode) "⬇  Update ksud Next"
+                           else "⬇  Update ksud classic",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
-        }
-        Card(modifier = modifier.padding(top = 12.dp)) {
-            SwitchPreference(
-                checked = state.shizukuEnabled,
-                onCheckedChange = actions::onShizukuChanged,
-                title = stringResource(R.string.shizuku_label),
-                summary = stringResource(R.string.shizuku_summary),
+            // Root action sits right under the updater: "Root now", or
+            // "Disable root" while the phone is rooted (cuts the boot re-root).
+            RunButton(
+                rooted = state.rooted,
+                running = state.running,
+                // New method needs no profile: the button is never greyed there.
+                supported = true,
+                onRun = actions::onRun,
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
+            // ksud profile band — SAME style as the old method's profile
+            // selector, no note text. Next profiles under KernelSU Next,
+            // classic profiles under KernelSU classic.
+            if (state.ksuNextMode && state.ksudNextProfiles.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    OverlaySpinnerPreference(
+                        title = stringResource(R.string.ksud_next_profile_label),
+                        items = state.ksudNextProfiles.map {
+                            DropdownItem(icon = null, title = it.label)
+                        },
+                        selectedIndex = state.ksudNextProfiles
+                            .indexOfFirst { it.id == state.ksudNextProfileId }
+                            .coerceAtLeast(0),
+                        showValue = true,
+                        onSelectedIndexChange = { index ->
+                            actions.onKsudNextProfileChanged(state.ksudNextProfiles[index].id)
+                        },
+                    )
+                }
+            }
+            if (!state.ksuNextMode && state.ksudClassicProfiles.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    OverlaySpinnerPreference(
+                        title = stringResource(R.string.ksud_next_profile_label),
+                        items = state.ksudClassicProfiles.map {
+                            DropdownItem(icon = null, title = it.label)
+                        },
+                        selectedIndex = state.ksudClassicProfiles
+                            .indexOfFirst { it.id == state.ksudClassicProfileId }
+                            .coerceAtLeast(0),
+                        showValue = true,
+                        onSelectedIndexChange = { index ->
+                            actions.onKsudClassicProfileChanged(state.ksudClassicProfiles[index].id)
+                        },
+                    )
+                }
+            }
+            // The new method's options live DIRECTLY here — not in advanced.
+            Card(modifier = modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    SwitchPreference(
+                        checked = state.newMethodBootEnabled,
+                        onCheckedChange = actions::onNewMethodBootChanged,
+                        title = stringResource(R.string.new_method_boot_title),
+                        summary = stringResource(R.string.new_method_boot_summary),
+                    )
+                    SwitchPreference(
+                        checked = state.newMethodAutoSoftReboot,
+                        onCheckedChange = actions::onNewMethodSoftRebootChanged,
+                        title = stringResource(R.string.new_method_soft_reboot_title),
+                        summary = stringResource(R.string.new_method_soft_reboot_summary),
+                    )
+                }
+            }
+        }
+        if (!state.newMethod) {
+            Card(modifier = modifier.padding(top = 12.dp)) {
+                SwitchPreference(
+                    checked = state.shizukuEnabled,
+                    onCheckedChange = actions::onShizukuChanged,
+                    title = stringResource(R.string.shizuku_label),
+                    summary = stringResource(R.string.shizuku_summary),
+                )
+            }
         }
         AnimatedVisibility(
             visible = state.advancedVisible,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
         ) {
-            AdvancedOptions(
-                state = state,
-                actions = actions,
-                onOpenProfileSheet = onOpenProfileSheet,
+            // Fully separated advanced sections: two interfaces in one app,
+            // nothing from one method shows in the other.
+            if (state.newMethod) {
+                NewMethodOptions(state = state, actions = actions)
+            } else {
+                AdvancedOptions(
+                    state = state,
+                    actions = actions,
+                    onOpenProfileSheet = onOpenProfileSheet,
+                )
+            }
+        }
+    }
+}
+
+/** Home-page switch: Old method (slow, exploit race) <-> New method (fast, DirtyFrag). */
+@Composable
+private fun MethodSwitch(
+    newMethod: Boolean,
+    onSelect: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val entries = listOf(
+            false to stringResource(R.string.method_old),
+            true to stringResource(R.string.method_new),
+        )
+        for ((isNew, label) in entries) {
+            val selected = isNew == newMethod
+            val bg = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)
+            val fg = if (selected) {
+                if (isSystemInDarkTheme()) Color(0xFF0B1220) else Color.White
+            } else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(bg)
+                    .clickable { onSelect(isNew) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = label, color = fg, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+/** Advanced section for the NEW method: info + log access. */
+@Composable
+private fun NewMethodOptions(
+    state: UniUiState,
+    actions: UniActions,
+) {
+    Column {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.new_method_advanced_info),
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+            )
+        }
+        state.runLogs.firstOrNull()?.let { latest ->
+            TextButton(
+                text = stringResource(R.string.see_last_log),
+                onClick = { actions.onRunLogOpen(latest) },
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            )
+        }
+        // Downloaded ksud profiles (DfKsudUpdater results) — delete list.
+        // Embedded profiles live in the APK assets and cannot be removed.
+        val dynamicNext = state.ksudNextProfiles.filter { it.dynamic }
+        if (dynamicNext.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Text(
+                        text = "Downloaded ksud Next profiles",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    for (p in dynamicNext) {
+                        ProfileDeleteRow(label = p.label, note = p.note) {
+                            actions.onDeleteKsudProfile(p.id, classic = false)
+                        }
+                    }
+                }
+            }
+        }
+        val dynamicClassic = state.ksudClassicProfiles.filter { it.dynamic }
+        if (dynamicClassic.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Text(
+                        text = "Downloaded ksud classic profiles",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                    for (p in dynamicClassic) {
+                        ProfileDeleteRow(label = p.label, note = p.note) {
+                            actions.onDeleteKsudProfile(p.id, classic = true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileDeleteRow(label: String, note: String, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            if (note.isNotBlank()) {
+                Text(
+                    text = note,
+                    fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
+        }
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = MiuixIcons.Close,
+                contentDescription = "Delete $label",
+                tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
         }
     }
@@ -639,12 +1255,20 @@ private fun ActivationStatusCard(
     rooted: Boolean,
     supported: Boolean,
     modifier: Modifier = Modifier,
+    liveRootState: String = "",
+    liveRootDetail: String = "",
+    selinux: String = "",
 ) {
-    val positive = rooted || supported
-    val cardColor = if (isSystemInDarkTheme()) {
-        if (positive) Color(0xFF173923) else Color(0xFF3B1715)
-    } else {
-        if (positive) Color(0xFFDFFAE4) else Color(0xFFF8E2E2)
+    // GhostSam-style: the banner IS the root status. Three live states from
+    // grant-independent signals (module, DF markers), plus SELinux line.
+    val rootedLive = liveRootState.startsWith("Rooted") || liveRootState == "Armed" && rooted
+    val failedLive = liveRootState.startsWith("Chain failed")
+    val positive = rooted || rootedLive
+    val cardColor = when {
+        positive -> if (isSystemInDarkTheme()) Color(0xFF173923) else Color(0xFFDFFAE4)
+        failedLive -> if (isSystemInDarkTheme()) Color(0xFF3B1715) else Color(0xFFF8E2E2)
+        supported -> if (isSystemInDarkTheme()) Color(0xFF173923) else Color(0xFFDFFAE4)
+        else -> if (isSystemInDarkTheme()) Color(0xFF3B1715) else Color(0xFFF8E2E2)
     }
     val statusIcon = if (positive) Icons.Rounded.CheckCircleOutline else Icons.Rounded.RemoveCircleOutline
     val statusIconColor = if (positive) {
@@ -652,25 +1276,26 @@ private fun ActivationStatusCard(
     } else {
         if (isSystemInDarkTheme()) Color(0xFFFFC56C) else Color(0xFFF5A623)
     }
-    val title = stringResource(
-        when {
-            rooted -> R.string.status_rooted
-            supported -> R.string.kernel_supported
-            else -> R.string.kernel_unsupported
-        }
-    )
+    val title = when {
+        rootedLive -> stringResource(R.string.status_rooted)
+        rooted -> stringResource(R.string.status_rooted)
+        failedLive -> stringResource(R.string.root_chain_failed)
+        supported -> stringResource(R.string.kernel_supported)
+        else -> stringResource(R.string.kernel_unsupported)
+    }
     Card(
         modifier = modifier,
         colors = CardDefaults.defaultColors(color = cardColor),
     ) {
         Box(modifier = Modifier.fillMaxWidth().height(110.dp)) {
-            Text(
-                text = title,
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 14.dp),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-            )
+            Column(modifier = Modifier.align(Alignment.TopStart).padding(start = 16.dp, top = 12.dp)) {
+                Text(
+                    text = title,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+            }
             Icon(
                 imageVector = statusIcon,
                 contentDescription = null,
@@ -687,6 +1312,7 @@ private fun DeviceInfoCard(
     socName: String,
     kernelRelease: String,
     modifier: Modifier = Modifier,
+    infoRows: List<Pair<String, String>> = emptyList(),
 ) {
     Card(modifier = modifier, insideMargin = PaddingValues(16.dp)) {
         SelectionContainer {
@@ -694,9 +1320,13 @@ private fun DeviceInfoCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                DeviceInfoItem(title = stringResource(R.string.device_label), value = deviceName)
-                DeviceInfoItem(title = stringResource(R.string.soc_label), value = socName)
-                DeviceInfoItem(title = stringResource(R.string.kernel_label), value = kernelRelease)
+                if (infoRows.isEmpty()) {
+                    DeviceInfoItem(title = stringResource(R.string.device_label), value = deviceName)
+                    DeviceInfoItem(title = stringResource(R.string.soc_label), value = socName)
+                    DeviceInfoItem(title = stringResource(R.string.kernel_label), value = kernelRelease)
+                } else {
+                    infoRows.forEach { (k, v) -> DeviceInfoItem(title = k, value = v) }
+                }
             }
         }
     }
@@ -840,16 +1470,24 @@ private fun LogsPage(
 
 @Composable
 private fun RunButton(
+    rooted: Boolean,
     running: Boolean,
     supported: Boolean,
-    onClick: () -> Unit,
+    onRun: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     TextButton(
-        text = stringResource(if (running) R.string.action_running else R.string.action_run),
-        enabled = supported && !running,
+        text = stringResource(
+            when {
+                running -> R.string.action_running
+                rooted -> R.string.action_already_root
+                else -> R.string.action_run
+            }
+        ),
+        // Rooted = a status, not an action: "Already root" is not clickable.
+        enabled = !running && !rooted && supported,
         colors = ButtonDefaults.textButtonColorsPrimary(),
-        onClick = onClick,
+        onClick = onRun,
         modifier = modifier,
     )
 }
@@ -860,6 +1498,7 @@ private fun AdvancedOptions(
     actions: UniActions,
     onOpenProfileSheet: () -> Unit,
 ) {
+    var uninstallConfirm by remember { mutableStateOf(false) }
     Column {
         Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
             Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -915,38 +1554,6 @@ private fun AdvancedOptions(
             }
         }
         Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-            Column {
-                SwitchPreference(
-                    checked = state.usePatchedKsud,
-                    onCheckedChange = actions::onUsePatchedKsudChanged,
-                    title = stringResource(R.string.use_patched_ksud),
-                    summary = stringResource(R.string.use_patched_ksud_summary),
-                )
-                if (state.usePatchedKsud) {
-                    val context = LocalContext.current
-                    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-                        if (uri != null) {
-                            val f = copyPickedFile(context, uri, prefix = "ksud-test")
-                            if (f == null) Toast.makeText(context, R.string.pick_failed, Toast.LENGTH_SHORT).show()
-                            else actions.onInstallPatchedKsud(f)
-                        }
-                    }
-                    Text(
-                        text = if (state.patchedKsudName.isEmpty()) stringResource(R.string.patched_ksud_none)
-                        else stringResource(R.string.patched_ksud_set, state.patchedKsudName),
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp),
-                        fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
-                    )
-                    TextButton(
-                        text = stringResource(R.string.patched_ksud_choose),
-                        onClick = { picker.launch("*/*") },
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                }
-            }
-        }
-        Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
             SwitchPreference(
                 checked = state.autoRootOnBoot,
                 onCheckedChange = actions::onAutoRootChanged,
@@ -954,11 +1561,89 @@ private fun AdvancedOptions(
                 summary = stringResource(R.string.auto_root_on_boot_summary),
             )
         }
+        Card(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            Column {
+                SwitchPreference(
+                    checked = state.instantRootEnabled,
+                    onCheckedChange = actions::onInstantRootEnabledChanged,
+                    title = stringResource(R.string.instant_root_title),
+                    summary = when {
+                        state.instantRootEnabled -> stringResource(R.string.instant_root_enabled_summary)
+                        state.instantRootInstalled -> stringResource(R.string.instant_root_off_summary)
+                        else -> stringResource(R.string.instant_root_not_installed)
+                    },
+                )
+                Text(
+                    text = if (state.instantRootInstalled) {
+                        stringResource(R.string.instant_root_status_installed)
+                    } else {
+                        stringResource(R.string.instant_root_status_missing)
+                    },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+                )
+                TextButton(
+                    text = stringResource(R.string.instant_root_log),
+                    onClick = actions::onOpenInstantRootLog,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 4.dp),
+                )
+                if (state.instantRootInstalled) {
+                    TextButton(
+                        text = stringResource(R.string.instant_root_open_helper),
+                        onClick = actions::onOpenHelper,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 4.dp),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.instant_root_update_helper),
+                        onClick = actions::onInstantRootInstallNow,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 4.dp),
+                    )
+                    TextButton(
+                        text = stringResource(R.string.instant_root_uninstall_helper),
+                        onClick = { uninstallConfirm = true },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).padding(top = 4.dp, bottom = 8.dp),
+                    )
+                }
+            }
+        }
         TextButton(
             text = stringResource(R.string.reset_profiles),
             onClick = actions::onResetProfiles,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
+        state.runLogs.firstOrNull()?.let { latest ->
+            TextButton(
+                text = stringResource(R.string.see_last_log),
+                onClick = { actions.onRunLogOpen(latest) },
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            )
+        }
+        if (uninstallConfirm) {
+            OverlayDialog(
+                show = true,
+                title = stringResource(R.string.instant_root_uninstall_helper),
+                onDismissRequest = { uninstallConfirm = false },
+                content = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(text = stringResource(R.string.instant_root_uninstall_confirm))
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TextButton(
+                                text = stringResource(R.string.cancel),
+                                onClick = { uninstallConfirm = false },
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                text = stringResource(R.string.instant_root_uninstall),
+                                colors = ButtonDefaults.textButtonColorsPrimary(),
+                                onClick = { uninstallConfirm = false; actions.onUninstallHelper() },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -1132,6 +1817,7 @@ private fun fileSummary(profile: DeviceProfile): String {
     val parts = mutableListOf("SO: ${n(profile.pathSo)}", "KO: ${n(profile.pathKo)}", "KSUD: ${n(profile.pathKsud)}")
     if (!profile.pathCveNormal.isNullOrEmpty()) parts.add("CVE: ${n(profile.pathCveNormal)}")
     if (!profile.pathCveRoot.isNullOrEmpty()) parts.add("ROOT: ${n(profile.pathCveRoot!!)}")
+    if (profile.useShizuku) parts.add("Shizuku")
     return parts.joinToString("  ·  ")
 }
 
@@ -1148,6 +1834,7 @@ private fun ProfileEditDialog(
     var name by remember(stateKey) { mutableStateOf(profile?.name ?: "") }
     var kaslr by remember(stateKey) { mutableStateOf(profile?.kaslrOffset ?: "") }
     var deviceType by remember(stateKey) { mutableStateOf(profile?.deviceType ?: "samsung") }
+    var useShizuku by remember(stateKey) { mutableStateOf(profile?.useShizuku ?: false) }
     var soPath by remember(stateKey) { mutableStateOf(profile?.pathSo ?: "") }
     var koPath by remember(stateKey) { mutableStateOf(profile?.pathKo ?: "") }
     var ksudPath by remember(stateKey) { mutableStateOf(profile?.pathKsud ?: "") }
@@ -1214,6 +1901,12 @@ private fun ProfileEditDialog(
                         modifier = Modifier.weight(1f),
                     )
                 }
+                SwitchPreference(
+                    checked = useShizuku,
+                    onCheckedChange = { useShizuku = it },
+                    title = stringResource(R.string.profile_use_shizuku),
+                    summary = stringResource(R.string.profile_use_shizuku_summary),
+                )
                 FileField(stringResource(R.string.field_exploit_so), soPath) { pendingRole = FileRole.SO; picker.launch("*/*") }
                 FileField(stringResource(R.string.field_ko), koPath) { pendingRole = FileRole.KO; picker.launch("*/*") }
                 FileField(stringResource(R.string.field_ksud), ksudPath) { pendingRole = FileRole.KSUD; picker.launch("*/*") }
@@ -1246,6 +1939,7 @@ private fun ProfileEditDialog(
                                 pathCveNormal = cveNormalPath.ifBlank { null },
                                 pathCveRoot = cveRootPath.ifBlank { null },
                                 flavor = profile?.flavor ?: "kernelsu",
+                                useShizuku = useShizuku,
                             )
                             onSave(updated, profile?.name)
                         },

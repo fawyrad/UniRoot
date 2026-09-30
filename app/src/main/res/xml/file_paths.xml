@@ -2,4 +2,5 @@
 <paths>
     <files-path name="manager" path="manager/" />
     <files-path name="root" path="." />
+    <external-files-path name="df" path="." />
 </paths>

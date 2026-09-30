@@ -1,0 +1,1 @@
+build ksud Next 3.3.0 prouvé S25 (S938X) — 2 KMI embarquées (6.6 KDP + 6.12) — patch --stage-from
